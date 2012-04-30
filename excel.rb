@@ -1,9 +1,10 @@
 require 'rubygems'
 require 'sinatra'
 require 'json'
-require 'spreadsheet'
 require 'tempfile'
 require 'jxl.jar'
+require 'base64'
+
 
 Rack::Utils.key_space_limit = 999999999999999
 
@@ -22,6 +23,9 @@ EXPENSE_START_ROW = 13
 
 NAME_COL = 1
 NAME_ROW = 9
+
+SIGNATURE_COL = 1
+SIGNATURE_ROW = 23
 
 post '/excel' do 
   expense = JSON.parse(request.body.read)
@@ -52,6 +56,17 @@ post '/excel' do
       sheet.addCell(client_label)
       sheet.addCell(amount_number)
     end
+    
+    if (expense["signature"])
+      image_signature = Base64.decode64(expense["signature"])
+
+      signature = Tempfile.new(['signature', '.png'])
+      signature.write(image_signature)
+      signature.rewind
+      writable_image = Java::jxl.write.WritableImage.new(SIGNATURE_COL, SIGNATURE_ROW, 2, 1, java.io.File.new(signature.path))
+      sheet.addImage(writable_image)
+    end
+ 
   ensure
     if (writeable_workbook)
       writeable_workbook.write
@@ -60,23 +75,4 @@ post '/excel' do
   end
   
   send_file(temp_file.path)
-end
-
-
-post '/expense' do
-  expense = JSON.parse(request.body.read)
-  book = Spreadsheet.open("template.xls")
-  sheet = book.worksheet(0)
-  sheet[NAME_ROW, NAME_COL] = expense["name"]
-  expense["receipts"].each_with_index do |receipt, i|
-    sheet[EXPENSE_START_ROW + i, DATE_COL] = receipt["date"]
-    sheet[EXPENSE_START_ROW + i, DESCRIPTION_COL] = receipt["description"]
-    sheet[EXPENSE_START_ROW + i, CLIENT_COL] = receipt["client"]
-    sheet[EXPENSE_START_ROW + i, CATEGORY_COL] = receipt["category"]
-    amount_in_cents = receipt["amount_in_cents"] ? receipt["amount_in_cents"].to_f/100 : receipt["amountInCents"].to_f/100
-    sheet[EXPENSE_START_ROW + i, TOTAL_COL] = amount_in_cents
-  end
-  file = Tempfile.new('spreadhsset')
-  book.write(file.path)
-  send_file(file.path)
 end
